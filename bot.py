@@ -331,6 +331,7 @@ def apply_portfolio_action(action_data):
     if action == "DEPOSIT":
         amount_usd = float(action_data.get("price") or 0.0)
         if amount_usd > 0:
+            portfolio["cash_deposits"].setdefault("total_deposited_usd", 0.0)
             portfolio["cash_deposits"]["total_deposited_usd"] += amount_usd
             portfolio["cash_deposits"].setdefault("history", []).append({
                 "amount": amount_usd,
