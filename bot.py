@@ -111,9 +111,14 @@ def load_portfolio():
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if "stocks" in data:
-                    if "cash_deposits" not in data:
+                if isinstance(data, dict):
+                    if "cash_deposits" not in data or not isinstance(data.get("cash_deposits"), dict):
                         data["cash_deposits"] = {"total_deposited_usd": 0.0, "history": []}
+                    else:
+                        data["cash_deposits"].setdefault("total_deposited_usd", 0.0)
+                        data["cash_deposits"].setdefault("history", [])
+                    data.setdefault("stocks", {})
+                    data.setdefault("total_realized_pnl", 0.0)
                     return data
         except Exception as e:
             print_rtl(f"Error reading JSON file: {e}")
@@ -351,14 +356,12 @@ def apply_portfolio_action(action_data):
     if action == "NONE" or qty <= 0:
         return
         
-    if symbol not in portfolio["stocks"]:
-        portfolio["stocks"][symbol] = {"holdings": {"qty": 0.0, "avg_purchase_price": 0.0}, "realized_pnl": 0.0, "transactions": []}
-        
-    stock_entry = portfolio["stocks"][symbol]
-    current_qty = float(stock_entry["holdings"]["qty"])
-    current_avg = float(stock_entry["holdings"]["avg_purchase_price"])
-    
     if action == "BUY":
+        if symbol not in portfolio["stocks"]:
+            portfolio["stocks"][symbol] = {"holdings": {"qty": 0.0, "avg_purchase_price": 0.0}, "realized_pnl": 0.0, "transactions": []}
+        stock_entry = portfolio["stocks"][symbol]
+        current_qty = float(stock_entry["holdings"]["qty"])
+        current_avg = float(stock_entry["holdings"]["avg_purchase_price"])
         new_qty = current_qty + qty
         new_avg = ((current_qty * current_avg) + (qty * price)) / new_qty if new_qty > 0 else 0.0
         stock_entry["holdings"]["qty"] = new_qty
@@ -370,21 +373,27 @@ def apply_portfolio_action(action_data):
             "date": datetime.now().isoformat(timespec="seconds")
         })
     elif action == "SELL":
+        stock_entry = portfolio["stocks"].get(symbol)
+        current_qty = float(stock_entry["holdings"]["qty"]) if stock_entry else 0.0
+        current_avg = float(stock_entry["holdings"]["avg_purchase_price"]) if stock_entry else 0.0
         qty_to_sell = min(qty, current_qty)
-        if qty_to_sell > 0:
-            pnl = (price - current_avg) * qty_to_sell
-            stock_entry["realized_pnl"] += pnl
-            portfolio["total_realized_pnl"] += pnl
-            stock_entry["holdings"]["qty"] = current_qty - qty_to_sell
-            if stock_entry["holdings"]["qty"] == 0:
-                stock_entry["holdings"]["avg_purchase_price"] = 0.0
-            stock_entry.setdefault("transactions", []).append({
-                "action": "SELL",
-                "qty": qty_to_sell,
-                "price": price,
-                "date": datetime.now().isoformat(timespec="seconds"),
-                "realized_pnl": pnl
-            })
+        if qty_to_sell <= 0:
+            return
+        pnl = (price - current_avg) * qty_to_sell
+        stock_entry["realized_pnl"] += pnl
+        portfolio["total_realized_pnl"] += pnl
+        stock_entry["holdings"]["qty"] = current_qty - qty_to_sell
+        if stock_entry["holdings"]["qty"] == 0:
+            stock_entry["holdings"]["avg_purchase_price"] = 0.0
+        stock_entry.setdefault("transactions", []).append({
+            "action": "SELL",
+            "qty": qty_to_sell,
+            "price": price,
+            "date": datetime.now().isoformat(timespec="seconds"),
+            "realized_pnl": pnl
+        })
+    else:
+        return
 
     save_portfolio(portfolio)
 
