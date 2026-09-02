@@ -165,7 +165,8 @@ def get_main_menu_keyboard():
         InlineKeyboardButton("📈 פוטנציאל זינוק השבוע שלא בתיק", callback_data="menu_10"),
         InlineKeyboardButton("📉 התראות שורט/ירידה שקיימות בתיק", callback_data="menu_11"),
         InlineKeyboardButton("📉 התראות שורט/ירידה שלא בתיק", callback_data="menu_12"),
-        InlineKeyboardButton("💸 שערי חליפין עדכניים (שקל/דולר/אירו)", callback_data="menu_13")
+        InlineKeyboardButton("💸 שערי חליפין עדכניים (שקל/דולר/אירו)", callback_data="menu_13"),
+        InlineKeyboardButton("📜 היסטוריית עסקאות", callback_data="menu_14")
     )
     return markup
 
@@ -348,6 +349,12 @@ def apply_portfolio_action(action_data):
         new_avg = ((current_qty * current_avg) + (qty * price)) / new_qty if new_qty > 0 else 0.0
         stock_entry["holdings"]["qty"] = new_qty
         stock_entry["holdings"]["avg_purchase_price"] = new_avg
+        stock_entry.setdefault("transactions", []).append({
+            "action": "BUY",
+            "qty": qty,
+            "price": price,
+            "date": datetime.now().isoformat(timespec="seconds")
+        })
     elif action == "SELL":
         qty_to_sell = min(qty, current_qty)
         if qty_to_sell > 0:
@@ -357,7 +364,14 @@ def apply_portfolio_action(action_data):
             stock_entry["holdings"]["qty"] = current_qty - qty_to_sell
             if stock_entry["holdings"]["qty"] == 0:
                 stock_entry["holdings"]["avg_purchase_price"] = 0.0
-            
+            stock_entry.setdefault("transactions", []).append({
+                "action": "SELL",
+                "qty": qty_to_sell,
+                "price": price,
+                "date": datetime.now().isoformat(timespec="seconds"),
+                "realized_pnl": pnl
+            })
+
     save_portfolio(portfolio)
 
 def send_long_message(chat_id, text, reply_markup=None):
@@ -435,6 +449,44 @@ def handle_menu_click(call):
                     f"💶 EUR/ILS: `{eur if isinstance(eur, str) else f'{eur:.4f}'}` ש\"ח\n\n"
                     f"⏰ עודכן: {datetime.now().strftime('%H:%M:%S')}"
                 )
+            elif menu_id == "14":
+                portfolio_data = load_portfolio()
+                all_txns = []
+                for sym, sdata in portfolio_data.get("stocks", {}).items():
+                    for txn in sdata.get("transactions", []):
+                        entry = dict(txn)
+                        entry["symbol"] = sym
+                        all_txns.append(entry)
+
+                if not all_txns:
+                    response_text = "📜 אין עסקאות רשומות עדיין."
+                else:
+                    all_txns.sort(key=lambda t: t.get("date", ""), reverse=True)
+                    lines = ["📜 **היסטוריית עסקאות אחרונות**", "━━━━━━━━━━━━━━━━━━━\n"]
+                    for txn in all_txns[:15]:
+                        txn_action = txn.get("action", "")
+                        emoji = "🟢" if txn_action == "BUY" else "🔴"
+                        action_label = "קנייה" if txn_action == "BUY" else "מכירה"
+                        txn_qty = float(txn.get("qty", 0.0))
+                        txn_price = float(txn.get("price", 0.0))
+                        total_value = txn_qty * txn_price
+                        raw_date = txn.get("date", "")
+                        try:
+                            date_str = datetime.fromisoformat(raw_date).strftime("%d/%m/%Y %H:%M")
+                        except Exception:
+                            date_str = raw_date
+
+                        line = (
+                            f"{emoji} **{txn.get('symbol', '?')}** | {action_label}\n"
+                            f"▫️ כמות: `{txn_qty:g}` | מחיר: `{txn_price:.2f}$` | שווי: `{total_value:.2f}$`\n"
+                            f"▫️ תאריך: `{date_str}`"
+                        )
+                        if txn_action == "SELL" and "realized_pnl" in txn:
+                            realized = float(txn.get("realized_pnl", 0.0))
+                            pnl_emoji = "💰" if realized >= 0 else "📉"
+                            line += f"\n▫️ {pnl_emoji} רווח/הפסד ממומש: `{realized:+.2f}$`"
+                        lines.append(line + "\n───────────────────")
+                    response_text = "\n".join(lines)
         except Exception as e:
             print_rtl(f"❌ שגיאה בכפתור {menu_id}: {e}")
             response_text = "⚠️ חלה שגיאה במשיכת הנתונים. אנא נסה שוב."
