@@ -7,16 +7,24 @@ so this script and the prompts stay in sync automatically when CLAUDE.md changes
 
 SAFETY MODEL - read before changing:
 The agents never touch this checked-out folder (the live one run_bot.bat/check_bot.bat
-use). All their work happens in an isolated git worktree (PIPELINE_WORKSPACE_DIR, a
-sibling folder on its own `pipeline-dev` branch). After Agent 2 and Agent 4, changes are
+use). All their work happens in an isolated git worktree (WORKSPACE_DIR, a sibling
+folder on its own `pipeline-dev` branch). After Agent 2 and Agent 4, changes are
 committed *there* with the agent's own explanation as the commit body and pushed to
 GitHub on `pipeline-dev`. Nothing ever auto-merges into `main` and nothing ever touches
 the live folder or portfolio.json - promoting reviewed changes to production is a
 separate, human-run step (see claude/approve_and_deploy.bat). Do not change cwd for
 run_claude_agent() to PROJECT_DIR/live folder; that would defeat this isolation.
 
+INTERRUPTION SAFETY: an agent call (run_claude_agent) is never interrupted by the
+scheduled-pause check below - that check only ever runs *between* cycles, after the
+previous cycle's work is already committed and pushed. Killing the window yourself
+(Ctrl+C / stop_pipeline.bat) can still land mid-agent; that's fine too because nothing
+is committed until an agent finishes, so at worst the workspace has some uncommitted
+scratch changes - claude/reject_and_reset.bat wipes those back to a clean state. The
+live folder is never at risk either way.
+
 Runs forever. On a usage/rate limit it sleeps and retries instead of stopping.
-Stop with Ctrl+C, or by deleting/checking claude/pipeline.pid from another window.
+Stop with Ctrl+C, or via claude/stop_pipeline.bat from another window.
 """
 
 import json
@@ -26,7 +34,10 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)  # live folder - never written to by agents
@@ -38,9 +49,14 @@ WORKSPACE_DIR = os.environ.get(
 )
 WORKSPACE_BRANCH = os.environ.get("PIPELINE_BRANCH", "pipeline-dev")
 
-LOG_FILE = os.path.join(SCRIPT_DIR, "pipeline.log")
-STATUS_FILE = os.path.join(SCRIPT_DIR, "pipeline_status.json")
-PID_FILE = os.path.join(SCRIPT_DIR, "pipeline.pid")
+# Everything the pipeline generates at runtime lives in one subfolder, so claude/ itself
+# only ever shows files you actually interact with (scripts + docs), not runtime noise.
+STATE_DIR = os.path.join(SCRIPT_DIR, "state")
+os.makedirs(STATE_DIR, exist_ok=True)
+LOG_FILE = os.path.join(STATE_DIR, "pipeline.log")
+STATUS_FILE = os.path.join(STATE_DIR, "pipeline_status.json")
+PID_FILE = os.path.join(STATE_DIR, "pipeline.pid")
+CONTINUE_SIGNAL_FILE = os.path.join(STATE_DIR, "continue_signal")
 
 CLAUDE_EXE = shutil.which("claude")
 _GIT_FALLBACK = r"C:\Program Files\Git\cmd\git.exe"
@@ -65,6 +81,18 @@ RATE_LIMIT_MARKERS = (
     "rate limit", "too many requests", "limit reached", "usage limit",
     "quota exceeded", "overloaded", "resets at",
 )
+
+# --- Scheduled review pause -------------------------------------------------
+# On these weekdays, the pipeline stops starting *new* cycles once the lead-in window
+# opens (PAUSE_HOUR minus PAUSE_LEAD_MINUTES) and pauses at the next cycle boundary -
+# never mid-agent. It pings you on Telegram and waits for claude/continue_pipeline.bat.
+PAUSE_ENABLED = os.environ.get("PIPELINE_PAUSE_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+PAUSE_DAYS = {
+    d.strip().lower() for d in os.environ.get("PIPELINE_PAUSE_DAYS", "Sunday,Thursday").split(",") if d.strip()
+}
+PAUSE_HOUR = int(os.environ.get("PIPELINE_PAUSE_HOUR", "10"))  # 24h, local time
+PAUSE_LEAD_MINUTES = int(os.environ.get("PIPELINE_PAUSE_LEAD_MINUTES", "60"))
+PAUSE_POLL_SECONDS = int(os.environ.get("PIPELINE_PAUSE_POLL_SECONDS", "30"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -238,6 +266,72 @@ def run_claude_agent(agent_name, prompt_instruction):
         error_backoff = min(error_backoff * 2, ERROR_BACKOFF_MAX)
 
 
+# --- Scheduled review pause -------------------------------------------------
+
+def load_live_telegram_credentials():
+    """Reads TELEGRAM_TOKEN/MY_CHAT_ID from the LIVE folder's .env - read-only, this
+    never starts or touches bot.py itself, just reuses its token to send one message."""
+    env_path = os.path.join(PROJECT_DIR, ".env")
+    values = {}
+    if not os.path.exists(env_path):
+        return None, None
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+    return values.get("TELEGRAM_TOKEN"), values.get("MY_CHAT_ID")
+
+
+def send_telegram_notification(text):
+    token, chat_id = load_live_telegram_credentials()
+    if not token or not chat_id:
+        log.warning("No Telegram credentials in .env - skipping notification: %s", text)
+        return
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode("utf-8")
+    try:
+        urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=15)
+        log.info("Sent Telegram notification.")
+    except (urllib.error.URLError, OSError) as exc:
+        log.warning("Failed to send Telegram notification: %s", exc)
+
+
+def pause_window_open(now):
+    """True from (PAUSE_HOUR - PAUSE_LEAD_MINUTES) onward on a configured weekday,
+    through the rest of that day - so once we're due for a pause, we stay due for it
+    (we just won't start a NEW cycle) until it actually happens."""
+    if not PAUSE_ENABLED:
+        return False
+    if now.strftime("%A").lower() not in PAUSE_DAYS:
+        return False
+    window_start = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+        hours=PAUSE_HOUR, minutes=-PAUSE_LEAD_MINUTES
+    )
+    return now >= window_start
+
+
+def wait_for_resume_decision(cycle):
+    if os.path.exists(CONTINUE_SIGNAL_FILE):
+        os.remove(CONTINUE_SIGNAL_FILE)  # stale leftover from before - don't skip the pause
+
+    log.info("Scheduled review pause reached after cycle %d. Waiting for continue_pipeline.bat ...", cycle)
+    write_status(state="paused_for_review", cycle=cycle)
+    send_telegram_notification(
+        "\u23f8\ufe0f \u05d4\u05e4\u05d9\u05d9\u05e4\u05dc\u05d9\u05d9\u05df \u05e1\u05d9\u05d9\u05dd \u05de\u05d7\u05d6\u05d5\u05e8 \u05d5\u05e2\u05e6\u05e8 \u05dc\u05d1\u05d3\u05d9\u05e7\u05d4 \u05de\u05ea\u05d5\u05d6\u05de\u05e0\u05ea.\n"
+        "\u05d1\u05d3\u05d5\u05e7 \u05d0\u05ea claude/review_changes.bat \u05e2\u05dc \u05d4\u05de\u05d7\u05e9\u05d1.\n"
+        "\u05dc\u05d4\u05de\u05e9\u05d9\u05da: claude/continue_pipeline.bat\n"
+        "\u05dc\u05e2\u05e6\u05d5\u05e8: claude/stop_pipeline.bat"
+    )
+    while not os.path.exists(CONTINUE_SIGNAL_FILE):
+        time.sleep(PAUSE_POLL_SECONDS)
+    os.remove(CONTINUE_SIGNAL_FILE)
+    log.info("Resume signal received - continuing.")
+    write_status(state="resumed")
+
+
 def acquire_lock():
     if os.path.exists(PID_FILE):
         with open(PID_FILE, "r", encoding="utf-8") as f:
@@ -268,11 +362,20 @@ def main():
         "Pipeline starting. claude=%s git=%s live_folder=%s workspace=%s (branch %s) permission_mode=%s",
         CLAUDE_EXE, GIT_EXE, PROJECT_DIR, WORKSPACE_DIR, WORKSPACE_BRANCH, PERMISSION_MODE,
     )
+    if PAUSE_ENABLED:
+        log.info("Scheduled pause: %s at %02d:00 (opens %d min early)",
+                  ", ".join(sorted(PAUSE_DAYS)), PAUSE_HOUR, PAUSE_LEAD_MINUTES)
 
     cycle = 0
     total_cost = 0.0
+    last_pause_date = None
     try:
         while True:
+            now = datetime.now()
+            if pause_window_open(now) and last_pause_date != now.date().isoformat():
+                last_pause_date = now.date().isoformat()
+                wait_for_resume_decision(cycle)
+
             cycle += 1
             write_status(cycle=cycle, state="running", total_cost_usd=round(total_cost, 4))
             log.info("========== CYCLE %d ==========", cycle)

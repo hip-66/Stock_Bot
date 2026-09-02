@@ -1,5 +1,1 @@
-pipeline.log
-pipeline.pid
-pipeline_status.json
-next_task.md
-bugs_found.md
+state/

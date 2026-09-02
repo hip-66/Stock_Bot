@@ -28,75 +28,101 @@ Desktop\Projects\
 
 `portfolio.json` (הנתונים הפיננסיים האמיתיים) הוצא לגמרי מהמעקב של גיט — שום פעולת merge/pull/reset לא יכולה לגעת בו או לדרוס אותו.
 
+**בתוך `claude\` יש עוד חלוקה:** קבצים שאתה בפועל נוגע בהם (הסקריפטים, ה-config) יושבים ישירות בתיקייה. כל מה שהפייפליין **יוצר** בזמן ריצה (יומן, סטטוס, קובץ נעילה, המשימות של הסוכנים) יושב בתת-תיקייה `claude\state\` — כדי שהתיקייה הראשית תישאר נקייה ותציג רק דברים שרלוונטי לך לגעת בהם.
+
+## "למה יש שני קבצים — run_pipeline.py ו-start_pipeline.bat, אם אני לא נוגע ב-run_pipeline.py?"
+
+זה לא כפילות — זו הפרדה מכוונת בין **המנוע** ל**כפתור ההפעלה**:
+
+- **`run_pipeline.py`** הוא כל הלוגיקה בפועל (הרצת 4 הסוכנים, קומיטים, push, בדיקת לו"ז, וכו'). הוא כתוב בפייתון כי צריך שם קוד אמיתי עם טיפול בשגיאות, JSON, תזמון — דברים שקובץ `.bat` לא יודע לעשות בצורה סבירה.
+- **`start_pipeline.bat`** הוא רק "כפתור" — שתי שורות שפותחות חלון ומריצות את ה-Python. אתה נוגע בזה כי זה מה שמפעיל בפועל; אתה לא נוגע ב-`run_pipeline.py` כי זו הלוגיקה הפנימית — בדיוק כמו שאתה לוחץ על קיצור דרך של תוכנה ולא פותח את קובץ ה-exe שלה ידנית.
+
+מיזוג שני הקבצים לאחד (להכניס את כל קוד הפייתון בתוך ה-bat) היה דווקא **פוגע** בסדר — batch לא תומך היטב בלוגיקה מורכבת, ואז כל שינוי עתידי (למשל הפיצ'ר של עצירה מתוזמנת שהוספתי עכשיו) היה הרבה יותר מסובך לכתוב ולתחזק. בדקתי את כל הקבצים בתיקייה — אין כרגע אף קובץ מיותר/לא בשימוש; כל קובץ שרשום בטבלה למטה נחוץ בפועל.
+
 ## כל הקבצים בתיקיית `claude` — מה כל אחד עושה ומתי להריץ אותו
 
 | קובץ | סוג | מתי להריץ / מה זה |
 |---|---|---|
 | `CLAUDE.md` | הגדרות | חוקי התפקידים של 4 הסוכנים וכללי הבטיחות. הפייפליין קורא את זה בכל מחזור. עורכים את זה רק אם רוצים לשנות את ההתנהגות/הכללים של הסוכנים עצמם. |
-| `run_pipeline.py` | מנוע | הסקריפט שמריץ את הלולאה האינסופית של 4 הסוכנים. לא מריצים אותו ישירות — משתמשים ב-`start_pipeline.bat`. |
+| `run_pipeline.py` | מנוע | כל הלוגיקה. לא מריצים ישירות — ראו הסבר למעלה. |
 | `start_pipeline.bat` | פעולה | **מפעיל את הפייפליין.** פותח חלון נפרד שרץ לנצח, כולל המתנה אוטומטית וחזרה כשנגמרים הטוקנים. |
-| `stop_pipeline.bat` | פעולה | **עוצר את הפייפליין.** מומלץ להריץ לפני `approve_and_deploy.bat`/`reject_and_reset.bat` כדי שלא יהיה מירוץ בין קומיט חדש לבין הפעולה שלך. |
-| `review_changes.bat` | פעולה | פותח בדפדפן את עמוד ההשוואה בגיטהאב בין `main` (מה שיש היום) ל-`pipeline-dev` (מה שהסוכנים בנו) — כדי לקרוא את השינויים לפני שמחליטים. |
-| `approve_and_deploy.bat` | פעולה | ✅ **מאשרים ופורסים לפרודקשיין.** ממזג `pipeline-dev` ל-`main`, דוחף לגיטהאב, מעדכן את התיקייה החיה, ושואל בנפרד אם להפעיל מחדש את הבוט. רק אחרי "כן" שני זה מגיע בפועל לטלגרם. |
-| `reject_and_reset.bat` | פעולה | ❌ **דוחים ומאפסים.** מוחק לצמיתות את כל מה שהסוכנים בנו ב-`pipeline-dev` ומחזיר אותו בדיוק למה שיש ב-`main`. לא נוגע בתיקייה החיה בכלל. הפייפליין יתחיל מחדש מהמצב הנוכחי בפעם הבאה שיופעל. |
-| `.gitignore` | הגדרות | קבצים שלא נשמרים בגיט (יומנים, next_task.md וכו') — לא צריך לגעת בזה. |
-| `pipeline.log` | פלט (נוצר אוטומטית) | יומן מלא של כל מה שהפייפליין עשה — לפתוח עם עורך טקסט כשרוצים לחקור לעומק. |
-| `pipeline_status.json` | פלט (נוצר אוטומטית) | תמונת מצב מהירה: מחזור נוכחי, שלב אחרון, עלות מצטברת בדולרים. |
-| `pipeline.pid` | פלט (נוצר אוטומטית) | קיים רק בזמן שהפייפליין רץ — מונע הפעלה כפולה בטעות. אם הפייפליין קרס בלי להיסגר נכון והקובץ נשאר, פשוט מוחקים אותו ידנית. |
-| `next_task.md` | פלט (נוצר אוטומטית) | המשימה הבאה שסוכן 1 כתב עבור סוכן 2. נוצר מחדש כל מחזור. |
-| `bugs_found.md` | פלט (נוצר אוטומטית) | הבאגים שסוכן 3 מצא עבור סוכן 4. נוצר מחדש כל מחזור. |
-| `..\.env` (בתיקייה הראשית, לא בתוך claude) | הגדרות סודיות | טוקן טלגרם ומפתח Gemini. לא בגיט. אין צורך לגעת אלא אם מחליפים טוקן/מפתח. |
+| `stop_pipeline.bat` | פעולה | **עוצר את הפייפליין** (מיידית, גם באמצע עבודה של סוכן אם צריך). מומלץ להריץ לפני `approve_and_deploy.bat`/`reject_and_reset.bat`. |
+| `continue_pipeline.bat` | פעולה | **ממשיך פייפליין שנעצר לבדיקה מתוזמנת** (ראו הסעיף הבא). לא עושה כלום אם הפייפליין לא במצב המתנה. |
+| `review_changes.bat` | פעולה | פותח בדפדפן את עמוד ההשוואה בגיטהאב בין `main` ל-`pipeline-dev` — לקרוא שינויים לפני שמחליטים. |
+| `approve_and_deploy.bat` | פעולה | ✅ **מאשרים ופורסים לפרודקשיין.** ממזג `pipeline-dev` ל-`main`, דוחף לגיטהאב, מעדכן את התיקייה החיה, ושואל בנפרד אם להפעיל מחדש את הבוט. |
+| `reject_and_reset.bat` | פעולה | ❌ **דוחים ומאפסים.** מוחק לצמיתות את מה שב-`pipeline-dev` ומחזיר אותו למה שיש ב-`main`. לא נוגע בתיקייה החיה. |
+| `.gitignore` | הגדרות | מתעלם מכל `claude/state/` — לא צריך לגעת. |
+| `state\pipeline.log` | פלט (אוטומטי) | יומן מלא — לפתוח עם עורך טקסט לחקירה מעמיקה. |
+| `state\pipeline_status.json` | פלט (אוטומטי) | תמונת מצב מהירה: מחזור נוכחי, שלב אחרון, עלות מצטברת. |
+| `state\pipeline.pid` | פלט (אוטומטי) | קיים רק בזמן ריצה — מונע הפעלה כפולה. אם נשאר בטעות אחרי קריסה, פשוט מוחקים. |
+| `state\next_task.md` | פלט (אוטומטי) | המשימה הבאה שסוכן 1 כתב לסוכן 2. נוצר מחדש כל מחזור. |
+| `state\bugs_found.md` | פלט (אוטומטי) | הבאגים שסוכן 3 מצא לסוכן 4. נוצר מחדש כל מחזור. |
+| `..\.env` (בתיקייה הראשית) | הגדרות סודיות | טוקן טלגרם ומפתח Gemini. לא בגיט. |
+
+## עצירה מתוזמנת לבדיקה (Scheduled Review Pause)
+
+**השאלה שהובילה לפיצ'ר הזה:** אם עוצרים את הפייפליין באמצע עבודה של סוכן, זה יכול לפגוע בקוד שהוא באמצע לכתוב? התשובה המלאה:
+
+- **הבוט החי (`Stock Bot`) לעולם לא בסיכון**, לא משנה מתי עוצרים — הסוכנים כותבים אך ורק בתוך `Stock_Bot_pipeline_workspace`, לא בתיקייה החיה. זה נכון תמיד, גם אם עוצרים באמצע.
+- אם עוצרים עם `stop_pipeline.bat` **באמצע** עבודה של סוכן, ה"ארגז חול" (`pipeline-dev`) עלול להישאר עם שינויים לא-commit-ים חצי גמורים. אין קומיט חדש עד שסוכן מסיים בהצלחה — כך שהכי גרוע שיכול לקרות זה בלגן זמני בענף הפיתוח, שאפשר תמיד לנקות עם `reject_and_reset.bat`.
+- **הפיצ'ר החדש שהוספתי פותר את זה מהשורש:** במקום לעצור באופן ידני ובלתי-צפוי, אפשר להגדיר ימים ושעה קבועים שבהם הפייפליין עוצר **בעצמו**, אבל **רק בין מחזורים שלמים** — הוא אף פעם לא עוצר סוכן באמצע עבודה. כברירת מחדל: **כל יום ראשון וחמישי, מהשעה 09:00 הוא מפסיק להתחיל מחזורים חדשים, וברגע שהמחזור הנוכחי מסתיים ונשלח לגיטהאב — הוא נעצר ומחכה לך**, גם אם זה קורה קצת לפני 10:00 או קצת אחריה (תלוי כמה זמן לקח המחזור האחרון).
+- כשזה קורה: הפייפליין שולח לך **הודעה בבוט הטלגרם האמיתי** (בלי להפעיל/לגעת בבוט עצמו — רק שולח הודעה עם הטוקן הקיים, אותו דבר כמו ששולח any-בוט הודעה) שאומרת שהוא ממתין לבדיקה שלך.
+- כדי להחליט: `review_changes.bat` (לראות מה נבנה) ואז או `continue_pipeline.bat` (להמשיך) או `stop_pipeline.bat`/`reject_and_reset.bat` (לעצור/לדחות).
+- אם לא תגיב בכלל — הוא פשוט **ממשיך לחכות** (לא ממשיך אוטומטית בלי שתאשר). זו ברירת המחדל הבטוחה.
+
+### הגדרות (env vars, לא חובה לגעת)
+
+| משתנה | ברירת מחדל | מה הוא עושה |
+|---|---|---|
+| `PIPELINE_PAUSE_ENABLED` | `1` (מופעל) | `0` כדי לכבות את העצירה המתוזמנת לגמרי. |
+| `PIPELINE_PAUSE_DAYS` | `Sunday,Thursday` | באילו ימים (באנגלית, מופרד בפסיקים) לעצור. |
+| `PIPELINE_PAUSE_HOUR` | `10` | שעת היעד (24 שעות, לפי השעון המקומי). |
+| `PIPELINE_PAUSE_LEAD_MINUTES` | `60` | כמה דקות לפני השעה להפסיק להתחיל מחזורים חדשים. |
 
 ## תרחישי שימוש
 
 ### תרחיש 1: הפעלה ראשונה (חד-פעמי)
-1. ודא שביצעת את ההתחברות החד-פעמית לגיטהאב (`git push -u origin main` ו-`git push -u origin pipeline-dev` מהטרמינל שלך).
+1. ודא שביצעת את ההתחברות החד-פעמית לגיטהאב (`git push -u origin main` ו-`git push -u origin pipeline-dev`).
 2. לחיצה כפולה על `start_pipeline.bat`.
-3. משאירים את החלון פתוח ברקע. אפשר לסגור את השיחה עם קלוד — הפייפליין ממשיך לרוץ בעצמו.
+3. משאירים את החלון פתוח ברקע.
 
 ### תרחיש 2: בדיקת התקדמות תוך כדי ריצה
-1. מסתכלים ב-`pipeline_status.json` (מחזור נוכחי, עלות) — פתיחה מהירה, לא צריך לקרוא הכל.
-2. לפרטים מלאים: פותחים את `pipeline.log`.
-3. לראות בפועל מה נבנה: `review_changes.bat`.
+1. `state\pipeline_status.json` — מחזור נוכחי, עלות.
+2. לפרטים מלאים: `state\pipeline.log`.
+3. לראות מה נבנה: `review_changes.bat`.
 
 ### תרחיש 3: אהבתי את מה שהסוכנים בנו — רוצה שזה יעלה לבוט האמיתי
-1. (מומלץ) `stop_pipeline.bat` כדי שלא ירוץ במקביל.
-2. `review_changes.bat` — קריאה אחרונה של הדיף בגיטהאב.
-3. `approve_and_deploy.bat` → עונים "y" למיזוג → עונים "y" להפעלה מחדש של הבוט.
-4. בודקים בטלגרם שהבוט מגיב ושהפיצ'ר החדש עובד.
-5. `start_pipeline.bat` שוב אם רוצים להמשיך לפיתוח הבא.
-
-### תרחיש 4: לא אהבתי / לא רלוונטי — רוצה למחוק ולתת לו לנסות שוב
 1. (מומלץ) `stop_pipeline.bat`.
-2. `reject_and_reset.bat` → עונים "y". כל מה שנבנה נמחק, `pipeline-dev` חוזר להיות זהה ל-`main`.
-3. הבוט החי לא נגע בכלל, אין צורך לגעת בו.
-4. `start_pipeline.bat` שוב — הפייפליין מתחיל מחזור חדש מנקודת ההתחלה הנוכחית.
+2. `review_changes.bat`.
+3. `approve_and_deploy.bat` → "y" למיזוג → "y" להפעלה מחדש.
+4. בודקים בטלגרם.
+5. `start_pipeline.bat` שוב אם רוצים להמשיך.
+
+### תרחיש 4: לא אהבתי — רוצה למחוק ולתת לו לנסות שוב
+1. (מומלץ) `stop_pipeline.bat`.
+2. `reject_and_reset.bat` → "y".
+3. הבוט החי לא נגע בכלל.
+4. `start_pipeline.bat` שוב.
 
 ### תרחיש 5: לבדוק את הקוד לוקאלית בלי להשפיע על הבוט האמיתי
-1. פותחים את התיקייה `Stock_Bot_pipeline_workspace` (לא `Stock Bot`!) בעורך קוד.
-2. **חשוב:** אם רוצים להריץ בפועל את `bot.py` משם, צריך טוקן טלגרם **נפרד לבדיקות** (בוט חדש שיוצרים דרך @BotFather) בקובץ `.env` שם — לעולם לא את הטוקן החי, אחרת שני התהליכים יתנגשו על אותו בוט בטלגרם.
+1. פותחים את `Stock_Bot_pipeline_workspace` (לא `Stock Bot`!).
+2. אם רוצים להריץ את `bot.py` בפועל משם — טוקן טלגרם **נפרד לבדיקות** בלבד.
 
-### תרחיש 6: משהו נראה תקוע / לא בטוח אם הפייפליין רץ
-1. אם `pipeline.pid` קיים אבל אין חלון פתוח בפועל — הפייפליין קרס. מוחקים את הקובץ ומריצים שוב `start_pipeline.bat`.
-2. `pipeline_status.json` ו-`pipeline.log` תמיד יגידו איפה זה נעצר לאחרונה.
+### תרחיש 6: משהו נראה תקוע
+1. `state\pipeline.pid` קיים אבל אין חלון פתוח — קרס. מוחקים את הקובץ, מריצים `start_pipeline.bat`.
+2. `state\pipeline_status.json`/`state\pipeline.log` תמיד יגידו איפה זה נעצר.
 
-## הגדרות מתקדמות (לא חובה לגעת)
-
-אפשר לכוון את התנהגות הפייפליין בלי לערוך קוד, על ידי הגדרת משתני סביבה לפני `start_pipeline.bat`:
-
-| משתנה | ברירת מחדל | מה הוא עושה |
-|---|---|---|
-| `PIPELINE_EFFORT` | (יורש מההגדרה הגלובלית, בד"כ `xhigh`) | רמת עומק חשיבה. `medium` = מהיר וזול יותר, פחות מעמיק. |
-| `PIPELINE_MAX_BUDGET_USD` | `5` | תקרת עלות דולרים לכל קריאה בודדת של סוכן. |
-| `PIPELINE_AGENT_TIMEOUT` | 2700 (45 דקות) | כמה זמן לחכות לסוכן בודד לפני שמנסים שוב. |
-| `PIPELINE_CYCLE_SLEEP` | 15 שניות | הפסקה בין מחזור למחזור. |
-| `PIPELINE_RATE_LIMIT_BACKOFF` | 900 שניות (15 דקות) | כמה זמן להמתין כשנתקלים במגבלת שימוש, לפני הניסיון הבא. |
+### תרחיש 7: קיבלת הודעה בטלגרם "⏸️ הפייפליין עצר לבדיקה"
+1. `review_changes.bat` — לראות מה נבנה מאז הבדיקה הקודמת.
+2. אם טוב: `approve_and_deploy.bat`, ואז `continue_pipeline.bat` כדי שימשיך לעבוד על הבא בתור.
+3. אם לא: `reject_and_reset.bat`, ואז `continue_pipeline.bat`.
+4. אם פשוט צריך עוד זמן לבדוק: לא עושים כלום — הוא ימתין בסבלנות.
 
 ## תקלות נפוצות
 
-- **"git is not recognized"** בטרמינל — פתחת טרמינל ישן שלא ראה את התקנת Git. תריץ `$env:PATH = "C:\Program Files\Git\cmd;$env:PATH"` פעם אחת בטרמינל הנוכחי, או סגור ופתח מחדש את כל האפליקציה (לא רק טאב טרמינל).
-- **`approve_and_deploy.bat` אומר "push to GitHub failed"** — כנראה בעיית אינטרנט או שההתחברות לגיטהאב פגה. תריץ ידנית `git push origin main` מהתיקייה הראשית ותראה את השגיאה המדויקת.
-- **הבוט לא מגיב אחרי deploy** — בדוק ב-Task Manager אם `python.exe` רץ בכלל, או פתח את `check_bot.bat` לראות סטטוס.
+- **"git is not recognized"** — טרמינל ישן. `$env:PATH = "C:\Program Files\Git\cmd;$env:PATH"` פעם אחת ב-PowerShell (לא רלוונטי ב-cmd אם git כבר עובד שם).
+- **push protection על סודות** — אם GitHub חוסם push בגלל "secrets found", זה סימן שמשהו רגיש נכנס להיסטוריה. אל תלחצו על "allow secret" בקישור של גיטהאב — זה חושף את הסוד לצמיתות. תגידו לי ואני אנקה את ההיסטוריה.
+- **הבוט לא מגיב אחרי deploy** — בדקו ב-Task Manager אם `python.exe` רץ, או `check_bot.bat`.
 
 ---
 
@@ -123,72 +149,98 @@ The idea: the agents (ideas → build → test → fix) work continuously inside
 
 `portfolio.json` (your real financial data) has been fully removed from git tracking — no merge/pull/reset operation can touch or overwrite it.
 
+**Inside `claude\` there's a further split:** files you actually interact with (scripts, config) sit directly in the folder. Everything the pipeline **generates** at runtime (log, status, lock file, the agents' hand-off tasks) lives in a `claude\state\` subfolder — so the main folder stays clean and only shows things relevant for you to touch.
+
+## "Why are there two files — run_pipeline.py and start_pipeline.bat — if I don't touch run_pipeline.py?"
+
+This isn't duplication — it's an intentional split between the **engine** and the **start button**:
+
+- **`run_pipeline.py`** is all the actual logic (running the 4 agents, commits, push, schedule checking, etc.). It's written in Python because that logic needs real error handling, JSON, scheduling — things a `.bat` file can't reasonably do.
+- **`start_pipeline.bat`** is just a "button" — two lines that open a window and run the Python. You touch this one because it's what actually launches things; you don't touch `run_pipeline.py` because it's the internal logic — the same way you click a program's shortcut rather than opening its .exe by hand.
+
+Merging the two into one file (putting all the Python logic inside the .bat) would actually **hurt** the organization — batch doesn't handle complex logic well, and every future change (like the scheduled-pause feature just added) would have been much harder to write and maintain. I reviewed every file in the folder — there is currently no unused/leftover file; everything in the table below is actually used.
+
 ## Every file in the `claude` folder — what it does and when to run it
 
 | File | Type | When to run it / what it is |
 |---|---|---|
 | `CLAUDE.md` | Config | The 4 agents' role rules and safety rules. The pipeline reads this every cycle. Only edit this if you want to change the agents' own behavior/rules. |
-| `run_pipeline.py` | Engine | The script that runs the infinite 4-agent loop. Don't run it directly — use `start_pipeline.bat`. |
+| `run_pipeline.py` | Engine | All the logic. Don't run directly — see explanation above. |
 | `start_pipeline.bat` | Action | **Starts the pipeline.** Opens a dedicated window that runs forever, including automatically waiting and retrying when usage limits are hit. |
-| `stop_pipeline.bat` | Action | **Stops the pipeline.** Recommended before `approve_and_deploy.bat`/`reject_and_reset.bat` so there's no race between a new commit and your action. |
-| `review_changes.bat` | Action | Opens the GitHub comparison page between `main` (what's live today) and `pipeline-dev` (what the agents built) in your browser — to read the changes before deciding. |
-| `approve_and_deploy.bat` | Action | ✅ **Approve and deploy to production.** Merges `pipeline-dev` into `main`, pushes to GitHub, updates the live folder, and separately asks whether to restart the bot. Only after that second "yes" does it actually reach Telegram. |
-| `reject_and_reset.bat` | Action | ❌ **Reject and reset.** Permanently discards everything the agents built on `pipeline-dev` and resets it to exactly match `main`. Never touches the live folder at all. The pipeline will start fresh from the current state next time it's launched. |
-| `.gitignore` | Config | Files that aren't saved to git (logs, next_task.md, etc.) — no need to touch this. |
-| `pipeline.log` | Output (auto-generated) | Full log of everything the pipeline did — open with a text editor when you want to dig deep. |
-| `pipeline_status.json` | Output (auto-generated) | Quick snapshot: current cycle, last stage, cumulative cost in dollars. |
-| `pipeline.pid` | Output (auto-generated) | Exists only while the pipeline is running — prevents accidentally starting it twice. If the pipeline crashed without closing cleanly and this file is left behind, just delete it manually. |
-| `next_task.md` | Output (auto-generated) | The next task Agent 1 wrote for Agent 2. Regenerated every cycle. |
-| `bugs_found.md` | Output (auto-generated) | The bugs Agent 3 found for Agent 4. Regenerated every cycle. |
-| `..\.env` (in the root folder, not inside claude) | Secret config | Telegram token and Gemini key. Not in git. No need to touch it unless you're rotating the token/key. |
+| `stop_pipeline.bat` | Action | **Stops the pipeline** (immediately, even mid-agent if needed). Recommended before `approve_and_deploy.bat`/`reject_and_reset.bat`. |
+| `continue_pipeline.bat` | Action | **Resumes a pipeline paused for scheduled review** (see next section). Does nothing if the pipeline isn't waiting. |
+| `review_changes.bat` | Action | Opens the GitHub comparison page between `main` and `pipeline-dev` in your browser — read the changes before deciding. |
+| `approve_and_deploy.bat` | Action | ✅ **Approve and deploy to production.** Merges `pipeline-dev` into `main`, pushes to GitHub, updates the live folder, and separately asks whether to restart the bot. |
+| `reject_and_reset.bat` | Action | ❌ **Reject and reset.** Permanently discards what's on `pipeline-dev` and resets it to match `main`. Never touches the live folder. |
+| `.gitignore` | Config | Ignores all of `claude/state/` — no need to touch this. |
+| `state\pipeline.log` | Output (auto) | Full log — open with a text editor to dig deep. |
+| `state\pipeline_status.json` | Output (auto) | Quick snapshot: current cycle, last stage, cumulative cost. |
+| `state\pipeline.pid` | Output (auto) | Exists only while running — prevents double-starting. If left over after a crash, just delete it. |
+| `state\next_task.md` | Output (auto) | The next task Agent 1 wrote for Agent 2. Regenerated every cycle. |
+| `state\bugs_found.md` | Output (auto) | The bugs Agent 3 found for Agent 4. Regenerated every cycle. |
+| `..\.env` (in the root folder) | Secret config | Telegram token and Gemini key. Not in git. |
+
+## Scheduled Review Pause
+
+**The question that led to this feature:** if you stop the pipeline mid-agent, can that damage the code it's in the middle of writing? Full answer:
+
+- **The live bot (`Stock Bot`) is never at risk**, no matter when you stop — the agents only ever write inside `Stock_Bot_pipeline_workspace`, never the live folder. That's true always, even mid-stop.
+- If you stop with `stop_pipeline.bat` **mid-agent**, the sandbox (`pipeline-dev`) can be left with half-finished, uncommitted changes. No new commit happens until an agent finishes successfully — so worst case is temporary mess on the dev branch, always cleanable with `reject_and_reset.bat`.
+- **The new feature I added solves this at the root:** instead of stopping manually and unpredictably, you can set fixed days and a time at which the pipeline pauses **itself** — but **only between complete cycles**, never mid-agent. By default: **every Sunday and Thursday, starting at 09:00 it stops starting new cycles, and as soon as the current cycle finishes and is pushed to GitHub — it pauses and waits for you**, whether that lands slightly before or after 10:00 (depending how long the last cycle took).
+- When that happens: the pipeline sends you a **message on the real Telegram bot** (without starting or touching the bot itself — it just sends a message using the existing token, same as any bot sending a message) saying it's waiting for your review.
+- To decide: `review_changes.bat` (see what was built), then either `continue_pipeline.bat` (keep going) or `stop_pipeline.bat`/`reject_and_reset.bat` (stop/reject).
+- If you don't respond at all — it simply **keeps waiting** (it does not auto-continue without your approval). That's the safe default.
+
+### Settings (env vars, optional)
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PIPELINE_PAUSE_ENABLED` | `1` (on) | `0` to disable scheduled pausing entirely. |
+| `PIPELINE_PAUSE_DAYS` | `Sunday,Thursday` | Which days (English, comma-separated) to pause on. |
+| `PIPELINE_PAUSE_HOUR` | `10` | Target hour (24h, local time). |
+| `PIPELINE_PAUSE_LEAD_MINUTES` | `60` | How many minutes before that hour to stop starting new cycles. |
 
 ## Usage scenarios
 
 ### Scenario 1: First-time setup (one-time)
-1. Make sure you've done the one-time GitHub sign-in (`git push -u origin main` and `git push -u origin pipeline-dev` from your own terminal).
+1. Make sure you've done the one-time GitHub sign-in (`git push -u origin main` and `git push -u origin pipeline-dev`).
 2. Double-click `start_pipeline.bat`.
-3. Leave the window running in the background. You can close the chat with Claude — the pipeline keeps running on its own.
+3. Leave the window running in the background.
 
 ### Scenario 2: Checking progress while it's running
-1. Glance at `pipeline_status.json` (current cycle, cost) — quick to open, no need to read everything.
-2. For full detail: open `pipeline.log`.
-3. To see what was actually built: `review_changes.bat`.
+1. `state\pipeline_status.json` — current cycle, cost.
+2. Full detail: `state\pipeline.log`.
+3. See what was built: `review_changes.bat`.
 
 ### Scenario 3: I like what the agents built — I want it live on the real bot
-1. (Recommended) `stop_pipeline.bat` so it isn't running concurrently.
-2. `review_changes.bat` — one last read of the diff on GitHub.
-3. `approve_and_deploy.bat` → answer "y" to merge → answer "y" to restart the bot.
-4. Check on Telegram that the bot responds and the new feature works.
-5. Run `start_pipeline.bat` again if you want it to keep developing the next thing.
-
-### Scenario 4: I don't like it / not relevant — discard it and let it try again
 1. (Recommended) `stop_pipeline.bat`.
-2. `reject_and_reset.bat` → answer "y". Everything built is discarded, `pipeline-dev` goes back to matching `main`.
-3. The live bot was never touched — nothing to undo there.
-4. Run `start_pipeline.bat` again — the pipeline starts a fresh cycle from the current baseline.
+2. `review_changes.bat`.
+3. `approve_and_deploy.bat` → "y" to merge → "y" to restart.
+4. Check on Telegram.
+5. Run `start_pipeline.bat` again if you want it to keep going.
+
+### Scenario 4: I don't like it — discard it and let it try again
+1. (Recommended) `stop_pipeline.bat`.
+2. `reject_and_reset.bat` → "y".
+3. The live bot was never touched.
+4. Run `start_pipeline.bat` again.
 
 ### Scenario 5: Testing the code locally without affecting the real bot
-1. Open the `Stock_Bot_pipeline_workspace` folder (not `Stock Bot`!) in your code editor.
-2. **Important:** if you want to actually run `bot.py` from there, you need a **separate test-only Telegram token** (a new bot created via @BotFather) in a `.env` file there — never the live token, or the two processes will collide over the same Telegram bot.
+1. Open `Stock_Bot_pipeline_workspace` (not `Stock Bot`!).
+2. To actually run `bot.py` from there — use a **separate test-only** Telegram token.
 
-### Scenario 6: Something looks stuck / not sure if the pipeline is running
-1. If `pipeline.pid` exists but there's no window actually open — the pipeline crashed. Delete the file and run `start_pipeline.bat` again.
-2. `pipeline_status.json` and `pipeline.log` will always show where it last stopped.
+### Scenario 6: Something looks stuck
+1. `state\pipeline.pid` exists but no window is open — it crashed. Delete the file, run `start_pipeline.bat`.
+2. `state\pipeline_status.json`/`state\pipeline.log` always show where it last stopped.
 
-## Advanced settings (optional)
-
-You can tune the pipeline's behavior without editing code, by setting environment variables before running `start_pipeline.bat`:
-
-| Variable | Default | What it does |
-|---|---|---|
-| `PIPELINE_EFFORT` | (inherits the global setting, usually `xhigh`) | Thinking depth. `medium` = faster and cheaper, less thorough. |
-| `PIPELINE_MAX_BUDGET_USD` | `5` | Dollar cost cap per single agent call. |
-| `PIPELINE_AGENT_TIMEOUT` | 2700 (45 minutes) | How long to wait for a single agent before retrying. |
-| `PIPELINE_CYCLE_SLEEP` | 15 seconds | Pause between one full cycle and the next. |
-| `PIPELINE_RATE_LIMIT_BACKOFF` | 900 seconds (15 minutes) | How long to wait after hitting a usage limit before trying again. |
+### Scenario 7: You got a Telegram message "⏸️ Pipeline paused for review"
+1. `review_changes.bat` — see what was built since the last check.
+2. If good: `approve_and_deploy.bat`, then `continue_pipeline.bat` so it keeps going on the next thing.
+3. If not: `reject_and_reset.bat`, then `continue_pipeline.bat`.
+4. If you just need more time to review: do nothing — it will wait patiently.
 
 ## Common issues
 
-- **"git is not recognized"** in the terminal — you opened an old terminal that didn't see the Git install. Run `$env:PATH = "C:\Program Files\Git\cmd;$env:PATH"` once in the current terminal, or fully close and reopen the whole app (not just a terminal tab).
-- **`approve_and_deploy.bat` says "push to GitHub failed"** — likely an internet issue or your GitHub sign-in expired. Run `git push origin main` manually from the root folder to see the exact error.
-- **The bot doesn't respond after a deploy** — check Task Manager to see if `python.exe` is even running, or open `check_bot.bat` to see its status.
+- **"git is not recognized"** — an old terminal. Run `$env:PATH = "C:\Program Files\Git\cmd;$env:PATH"` once in PowerShell (not needed in cmd if git already works there).
+- **Push protection on secrets** — if GitHub blocks a push saying "secrets found", something sensitive made it into history. Don't click "allow secret" on GitHub's link — that permanently exposes it. Tell me and I'll clean the history.
+- **The bot doesn't respond after a deploy** — check Task Manager for `python.exe`, or `check_bot.bat`.
