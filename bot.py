@@ -72,12 +72,16 @@ MY_CHAT_ID = int(_MY_CHAT_ID_RAW)
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
+class AIClientUnavailableError(RuntimeError):
+    """Raised when Gemini features are used but the client failed to initialize at startup."""
+
+ai_client = None
+MODEL_NAME = 'gemini-2.5-flash'
 try:
     ai_client = genai.Client(api_key=GEMINI_KEY)
-    MODEL_NAME = 'gemini-2.5-flash'
     print_rtl(f"\nהחיבור ל-Gemini ({MODEL_NAME}) בוצע בהצלחה!")
 except Exception as e:
-    print_rtl(f"\nשגיאה באתחול Gemini: {e}")
+    print_rtl(f"\n❌ שגיאה באתחול Gemini: {e}\nכל תכונות ה-AI (תפריטים 5-12 והודעות חופשיות) יהיו מושבתות עד לתיקון.")
 
 DB_FILE = os.path.join(BASE_DIR, "portfolio.json")
 
@@ -262,6 +266,11 @@ def get_financial_status():
 # 8. מנוע ה-AI (Gemini)
 # =====================================================================
 def generate_ai_response(user_prompt, explicit_intent=None):
+    if ai_client is None:
+        raise AIClientUnavailableError(
+            "לקוח ה-Gemini לא אותחל בהצלחה בעת הפעלת הבוט (בדוק GEMINI_KEY ואת החיבור לרשת)."
+        )
+
     usd, eur, stocks_data, portfolio_summary = get_financial_status()
     
     portfolio = load_portfolio()
@@ -487,6 +496,9 @@ def handle_menu_click(call):
                             line += f"\n▫️ {pnl_emoji} רווח/הפסד ממומש: `{realized:+.2f}$`"
                         lines.append(line + "\n───────────────────")
                     response_text = "\n".join(lines)
+        except AIClientUnavailableError as e:
+            print_rtl(f"❌ AI לא זמין בכפתור {menu_id}: {e}")
+            response_text = "🤖 שירות ה-AI אינו זמין כרגע (כשל באתחול). פנה למנהל המערכת לבדיקת GEMINI_KEY."
         except Exception as e:
             print_rtl(f"❌ שגיאה בכפתור {menu_id}: {e}")
             response_text = "⚠️ חלה שגיאה במשיכת הנתונים. אנא נסה שוב."
@@ -523,7 +535,10 @@ def handle_free_text(message):
         
         send_long_message(message.chat.id, f"{ai_text_reply}\n\n{updated_portfolio_summary}")
         send_long_message(message.chat.id, stocks_data, reply_markup=get_main_menu_keyboard())
-        
+
+    except AIClientUnavailableError as e:
+        print_rtl(f"❌ AI לא זמין: {e}")
+        bot.send_message(message.chat.id, "🤖 שירות ה-AI אינו זמין כרגע (כשל באתחול). פנה למנהל המערכת לבדיקת GEMINI_KEY.", reply_markup=get_main_menu_keyboard())
     except Exception as e:
         print_rtl(f"❌ שגיאה: {e}")
         bot.send_message(message.chat.id, "⚠️ אופס, חלה שגיאה זמנית בעיבוד הנתונים.", reply_markup=get_main_menu_keyboard())
