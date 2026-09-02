@@ -416,8 +416,10 @@ def handle_menu_click(call):
     chat_id = call.message.chat.id
     menu_id = call.data.split("_")[1]
     
-    usd, eur, stocks_data, portfolio_summary = get_financial_status()
-    
+    usd = eur = stocks_data = portfolio_summary = None
+    if menu_id in ("1", "2", "13"):
+        usd, eur, stocks_data, portfolio_summary = get_financial_status()
+
     if menu_id == "1":
         send_long_message(chat_id, portfolio_summary, reply_markup=get_main_menu_keyboard())
     elif menu_id == "2":
